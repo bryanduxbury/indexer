@@ -12,10 +12,10 @@
 LiquidCrystal lcd(RS, EN, DB4, DB5, DB6, DB7);
 
 // stepper motor
-#define STEPS_PER_REV 200
-#define MICROSTEPS 16
+#define STEPS_PER_REV 200l
+#define MICROSTEPS 16l
 #define WORM_RATIO 72l
-#define STEPS_PER_FULL_REV (WORM_RATIO * STEPS_PER_REV * MICROSTEPS)
+#define STEPS_PER_FULL_REV (long) (WORM_RATIO * STEPS_PER_REV * MICROSTEPS)
 #define DEG_PER_STEP (float) (360.0 / STEPS_PER_FULL_REV)
 
 #define DIR_PIN 4
@@ -37,13 +37,17 @@ volatile long maxEncoderValue = 0;
 volatile long encoderStepValue = 1;
 
 long getEncoderValue() {
-  return encoderValue / 4;
+  return encoderValue / 4l;
+}
+
+void setEncoderValue(long newVal) {
+  encoderValue = newVal * 4l;
 }
 
 void configureEncoder(long minval, long maxval, long curval, long step) {
-  minEncoderValue = minval;
-  maxEncoderValue = 4 * maxval;
-  encoderValue = 4 * curval;
+  minEncoderValue = 4l * minval;
+  maxEncoderValue = 4l * maxval;
+  encoderValue = 4l * curval;
   encoderStepValue = step;
 }
 
@@ -51,9 +55,6 @@ void configureEncoder(long minval, long maxval, long curval, long step) {
 #define L_BUTTON_PIN 7
 
 // system config
-const int minDivs = 1;
-const int maxDivs = 720;
-
 #define UNSELECTED_MODE -1
 #define DIV_MODE 0
 #define DIV_MENU_MODE 2
@@ -114,29 +115,22 @@ void menu() {
   lcd.setCursor(0, 3);
   lcd.print("SELECT |       |    ");
 
-  configureEncoder(0, 2, 0, 1);
+  configureEncoder(0, 1, 0, 1);
 
   while (!isRotaryPressed()) {
     lcd.setCursor(0,0);
     if (getEncoderValue() == 0) {
-      lcd.print("[Div Mode]");
+      lcd.print("     [Div Mode]     ");
     } else {
-      lcd.print(" Div Mode ");
+      lcd.print("      Div Mode      ");
     }
 
     lcd.setCursor(0,1);
     if (getEncoderValue() == 1) {
-      lcd.print("[Jog Mode]");
+      lcd.print("     [Jog Mode]     ");
     } else {
-      lcd.print(" Jog Mode ");
-    }
-
-    lcd.setCursor(0,2);
-    if (getEncoderValue() == 2) {
-      lcd.print("[Config]");
-    } else {
-      lcd.print(" Config ");
-    }  
+      lcd.print("      Jog Mode      ");
+    } 
     delay(100);
   }
 
@@ -157,8 +151,8 @@ void menu() {
 }
 
 // div mode state
-int numDivs = -1;
-int curDiv = -1;
+long numDivs = -1;
+long curDiv = -1;
 long curStep = 0;
 
 bool isRotaryPressed() {
@@ -194,8 +188,9 @@ void configureDivMode() {
     lcd.print(" deg)");
 
     lcd.setCursor(0,2);
-    lcd.print("Err:");
-    lcd.print(stepsPerDiv, 5);
+    lcd.print("Err: +/-");
+    lcd.print((stepsPerDiv - (long) stepsPerDiv) * DEG_PER_STEP, 5);
+    lcd.print(" deg");
 
     delay(100);
   }
@@ -218,7 +213,7 @@ void setupDivMode() {
   lcd.print("MENU  | PREV |  NEXT");
 }
 
-int normalizeCurDiv() {
+long normalizeCurDiv() {
   if (curDiv < 0) {
     return numDivs - ((curDiv + 1) % numDivs);
   } else {
@@ -236,7 +231,7 @@ void divMode() {
   lcd.setCursor(11, 1);
   lcd.print(360.0 / numDivs * curDiv, 5);
 
-  int moveDir = 0;
+  long moveDir = 0;
   
   if (digitalRead(R_BUTTON_PIN) == LOW) {
     // advance button pressed? step forward
@@ -250,15 +245,18 @@ void divMode() {
     long desiredStep = round((float) STEPS_PER_FULL_REV / numDivs * (curDiv + moveDir));
     long requiredSteps = desiredStep - curStep;
 
-    lcd.setCursor(0,2);
-    lcd.print(desiredStep);
-    lcd.print(" ");
-    lcd.print(curStep);
+//    lcd.setCursor(0,2);
+//    lcd.print(desiredStep);
+//    lcd.print(" ");
+//    lcd.print(curStep);
 
     stepper.move(requiredSteps);
     curDiv += moveDir;
     curStep += requiredSteps;
   }
+
+  if (moveDir != 0)
+    delay(500);
 
   // rotary button pressed == div mode menu
   if (isRotaryPressed()) {
@@ -306,6 +304,7 @@ void divMenu() {
 
     case 1:
     curDiv = 0;
+    curStep = 0;
     setupDivMode();
     break;
 
@@ -318,11 +317,9 @@ void divMenu() {
 void configureJogMode() {
   lcd.clear();
   lcd.setCursor(0,0);
-  lcd.print("Target:     Current:");
+  lcd.print("Current:");
   lcd.setCursor(0,3);
-  lcd.print(" MENU | ZERO | ???");
-
-  configureEncoder(0, STEPS_PER_FULL_REV, 0, STEPS_PER_REV * MICROSTEPS * 0.1);
+  lcd.print(" MENU | ZERO | STEP ");
 
   currentMode = JOG_MODE;
 }
@@ -331,33 +328,76 @@ float stepsToDegrees(long step) {
   return (float) step / STEPS_PER_FULL_REV * 360.0;
 }
 
+#define STEP_SIZES [STEPS_PER_REV*MICROSTEPS]
+
 void jogMode() {
   long currentStepOfFullRev = 0;
-  
+
+  int stepSizeNum = 8;
+  long stepSize = 1l << stepSizeNum;
+  int rotaryMode = 0; // actual jog
+
+  configureEncoder(-5l * STEPS_PER_FULL_REV, 5l*STEPS_PER_FULL_REV, 0, stepSize);
+
   while (true) {
-    lcd.setCursor(0,1);
-    lcd.print(stepsToDegrees(getEncoderValue()), 5);
+    if (rotaryMode == 0) {
+      long targetStepOfFullRev = getEncoderValue();
+      
+      lcd.setCursor(9,0);
+      lcd.print(stepsToDegrees(currentStepOfFullRev), 5);
+      // clears obsolete trailing zeroes
+      lcd.print(" ");
 
-    lcd.setCursor(12,1);
-    lcd.print(stepsToDegrees(currentStepOfFullRev), 5);
+      lcd.setCursor(0,1);
+      lcd.print("Step: ");
+      lcd.print(stepsToDegrees(stepSize), 5);
+      lcd.print(" ");
 
-    lcd.setCursor(0,2);
-    lcd.print("Res:");
-    lcd.print(360.0 / STEPS_PER_FULL_REV, 5);
+      lcd.setCursor(0,2);
+      lcd.print("Res:");
+      lcd.print(360.0 / STEPS_PER_FULL_REV, 5);
 
-    long targetStepOfFullRev = getEncoderValue();
-    if (currentStepOfFullRev != targetStepOfFullRev) {
-      long stepDelta = currentStepOfFullRev - targetStepOfFullRev;
+      if (currentStepOfFullRev != targetStepOfFullRev) {
+        long stepDelta = currentStepOfFullRev - targetStepOfFullRev;
 
-      stepper.move(stepDelta);
-      currentStepOfFullRev = targetStepOfFullRev;
+        stepper.move(-1l * stepDelta);
+        currentStepOfFullRev = targetStepOfFullRev;
+      }
+
+      // zero current step
+      if (digitalRead(L_BUTTON_PIN) == LOW) {
+        currentStepOfFullRev = 0;
+        setEncoderValue(0);
+        delay(500);
+      }
+
+      // switch over to adjusting step size
+      if (digitalRead(R_BUTTON_PIN) == LOW) {
+        configureEncoder(1, 10, stepSizeNum, 1);
+        rotaryMode = 1;
+        delay(500);
+      }
+    } else {
+      // rotary encoder changes step size
+      lcd.setCursor(9,0);
+      lcd.print(stepsToDegrees(currentStepOfFullRev), 5);
+      // clears obsolete trailing zeroes
+      lcd.print(" ");
+
+      lcd.setCursor(0,1);
+      lcd.print("Step:[");
+      lcd.print(stepsToDegrees(1 << getEncoderValue()), 5);
+      lcd.print("]");
+
+      if (digitalRead(R_BUTTON_PIN) == LOW) {
+        stepSizeNum = getEncoderValue();
+        stepSize = 1l << stepSizeNum;
+        configureEncoder(-5l * STEPS_PER_FULL_REV, 5l*STEPS_PER_FULL_REV, currentStepOfFullRev, stepSize);
+        rotaryMode = 0;
+        delay(500);
+      }
     }
-
-    delay(100);
-    
   }
-
-  
 }
 
 
